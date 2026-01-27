@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rubik's Cube Solver</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; max-width: 600px; margin: 0 auto; padding: 20px; }
+        #video-container { position: relative; width: 300px; height: 300px; margin: 0 auto; background: #eee; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            border: 2px solid red;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            pointer-events: none;
+        }
+        .grid-cell { border: 1px solid rgba(255, 0, 0, 0.5); }
+
+        #controls { margin-top: 20px; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; margin: 5px; }
+
+        #preview { display: flex; justify-content: center; gap: 5px; margin-top: 10px; flex-wrap: wrap;}
+        .face-thumb { width: 50px; height: 50px; border: 1px solid #ccc; object-fit: cover; }
+
+        #status { margin-top: 20px; font-weight: bold; }
+        #solution { margin-top: 20px; font-size: 1.2em; color: blue; word-break: break-all; }
+
+        .instruction { color: #555; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>Rubik's Cube Solver</h1>
+
+    <div class="instruction">
+        Current Face to Capture: <span id="current-face" style="font-weight:bold; color:red;">UP (White Center)</span>
+    </div>
+    <div class="instruction">
+        Order: Up -> Right -> Front -> Down -> Left -> Back
+    </div>
+
+    <div id="video-container">
+        <video id="video" autoplay playsinline></video>
+        <div id="overlay">
+            <div class="grid-cell"></div><div class="grid-cell"></div><div class="grid-cell"></div>
+            <div class="grid-cell"></div><div class="grid-cell"></div><div class="grid-cell"></div>
+            <div class="grid-cell"></div><div class="grid-cell"></div><div class="grid-cell"></div>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button id="capture-btn">Capture Face</button>
+        <button id="reset-btn">Reset</button>
+        <button id="solve-btn" disabled>Solve Cube</button>
+    </div>
+
+    <div id="preview"></div>
+    <div id="status"></div>
+    <div id="solution"></div>
+
+    <canvas id="canvas" width="300" height="300" style="display:none;"></canvas>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const captureBtn = document.getElementById('capture-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const solveBtn = document.getElementById('solve-btn');
+        const previewDiv = document.getElementById('preview');
+        const currentFaceSpan = document.getElementById('current-face');
+        const statusDiv = document.getElementById('status');
+        const solutionDiv = document.getElementById('solution');
+
+        const faces = ["UP (White Center)", "RIGHT (Red Center)", "FRONT (Green Center)", "DOWN (Yellow Center)", "LEFT (Orange Center)", "BACK (Blue Center)"];
+        let capturedImages = [];
+
+        // Start Camera
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+            .then(stream => {
+                video.srcObject = stream;
+            })
+            .catch(err => {
+                console.error("Error accessing camera: ", err);
+                statusDiv.innerText = "Error accessing camera. Please allow permissions.";
+            });
+
+        captureBtn.addEventListener('click', () => {
+            if (capturedImages.length >= 6) return;
+
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(blob => {
+                capturedImages.push(blob);
+
+                // Show preview
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(blob);
+                img.className = 'face-thumb';
+                previewDiv.appendChild(img);
+
+                // Update UI
+                if (capturedImages.length < 6) {
+                    currentFaceSpan.innerText = faces[capturedImages.length];
+                } else {
+                    currentFaceSpan.innerText = "All faces captured!";
+                    captureBtn.disabled = true;
+                    solveBtn.disabled = false;
+                }
+            }, 'image/jpeg');
+        });
+
+        resetBtn.addEventListener('click', () => {
+            capturedImages = [];
+            previewDiv.innerHTML = '';
+            currentFaceSpan.innerText = faces[0];
+            captureBtn.disabled = false;
+            solveBtn.disabled = true;
+            statusDiv.innerText = '';
+            solutionDiv.innerText = '';
+        });
+
+        solveBtn.addEventListener('click', async () => {
+            statusDiv.innerText = "Analyzing and Solving...";
+            solutionDiv.innerText = "";
+
+            const formData = new FormData();
+            capturedImages.forEach((blob, index) => {
+                formData.append('files', blob, `face_${index}.jpg`);
+            });
+
+            try {
+                const response = await fetch('/solve', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusDiv.innerText = "Solved!";
+                    solutionDiv.innerText = data.solution;
+                } else {
+                    statusDiv.innerText = "Error: " + (data.error || "Unknown error");
+                    if (data.state) {
+                         solutionDiv.innerText = "Detected State: " + data.state;
+                    }
+                }
+            } catch (error) {
+                statusDiv.innerText = "Network Error: " + error.message;
+            }
+        });
+    </script>
+</body>
+</html>
